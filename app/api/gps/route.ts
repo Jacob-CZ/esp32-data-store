@@ -9,52 +9,83 @@ type GpsDataRow = {
 	createdAt: Date
 }
 
-export async function POST(request: Request) {
+const requiredParams = [
+	"latitude",
+	"longitude",
+	"year",
+	"month",
+	"day",
+	"hour",
+	"minute",
+	"second",
+]
+
+export async function GET(request: Request) {
 	try {
-		const body = await request.json()
-		console.log("Received GPS payload:", body)
+		const url = new URL(request.url)
+		const params = url.searchParams
 
-		// Construct recordedAt date from payload fields
-		// Payload: { year, month, day, hour, minute, second, ... }
-		// Note: Month in Date constructor is 0-indexed (0-11), but GPS usually gives 1-12.
-		// Assuming GPS gives 1-12, we subtract 1.
-		const recordedAt = new Date(
-			body.year,
-			body.month - 1,
-			body.day,
-			body.hour,
-
-			body.minute,
-			body.second
+		const hasAllInsertParams = requiredParams.every((key) =>
+			params.has(key)
 		)
-		console.log("Constructed Date:", recordedAt)
 
-		const insertSql = `
+		if (hasAllInsertParams) {
+			const latitude = Number(params.get("latitude"))
+			const longitude = Number(params.get("longitude"))
+			const year = Number(params.get("year"))
+			const month = Number(params.get("month"))
+			const day = Number(params.get("day"))
+			const hour = Number(params.get("hour"))
+			const minute = Number(params.get("minute"))
+			const second = Number(params.get("second"))
+
+			const numbers = [
+				latitude,
+				longitude,
+				year,
+				month,
+				day,
+				hour,
+				minute,
+				second,
+			]
+
+			if (numbers.some((n) => Number.isNaN(n))) {
+				return NextResponse.json(
+					{
+						success: false,
+						error: "Invalid numeric query parameters",
+					},
+					{ status: 400 }
+				)
+			}
+
+			const recordedAt = new Date(
+				year,
+				month - 1,
+				day,
+				hour,
+				minute,
+				second
+			)
+
+			const insertSql = `
       INSERT INTO "GpsData" ("latitude", "longitude", "recordedAt")
       VALUES ($1, $2, $3)
       RETURNING *;
     `
 
-		const insertResult = await query<GpsDataRow>(insertSql, [
-			body.latitude,
-			body.longitude,
-			recordedAt,
-		])
+			const insertResult = await query<GpsDataRow>(insertSql, [
+				latitude,
+				longitude,
+				recordedAt,
+			])
 
-		const data = insertResult.rows[0]
+			const data = insertResult.rows[0]
+			return NextResponse.json({ success: true, data }, { status: 201 })
+		}
 
-		return NextResponse.json({ success: true, data }, { status: 201 })
-	} catch (error) {
-		console.error("Error saving GPS data:", error)
-		return NextResponse.json(
-			{ success: false, error: "Failed to save data" },
-			{ status: 500 }
-		)
-	}
-}
-
-export async function GET() {
-	try {
+		// Fallback: list latest points
 		const selectSql = `
       SELECT *
       FROM "GpsData"
@@ -65,9 +96,9 @@ export async function GET() {
 		const result = await query<GpsDataRow>(selectSql)
 		return NextResponse.json(result.rows)
 	} catch (error) {
-		console.error("Error fetching GPS data:", error)
+		console.error("Error handling GPS request:", error)
 		return NextResponse.json(
-			{ success: false, error: "Failed to fetch data" },
+			{ success: false, error: "Failed to handle request" },
 			{ status: 500 }
 		)
 	}
